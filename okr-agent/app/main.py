@@ -246,8 +246,15 @@ def ask(
 
     # Enhanced sentence extraction with OKR structure awareness
     objectives, key_results, risks, other_sentences = [], [], [], []
+    processed_docs = set()  # Track which documents we've already processed
     
     for h in enforced:
+        # Skip if we've already processed this document
+        doc_path = h.metadata.get("path", "")
+        if doc_path in processed_docs:
+            continue
+        processed_docs.add(doc_path)
+        
         # Extract content from HTML more carefully
         text_content = h.page_content.strip()
         
@@ -268,13 +275,7 @@ def ask(
             objectives.append(clean_obj)
         
         # Extract key results from different patterns
-        # Pattern 1: Traditional KR1:, KR2: format in list items
-        kr_matches = re.findall(r'<li[^>]*>(KR\d+:[^<]*)</li>', text_content, re.IGNORECASE)
-        for kr in kr_matches:
-            clean_kr = html.unescape(kr).strip()
-            key_results.append(clean_kr)
-        
-        # Pattern 2: Key results under "Key Results" section (without KR1:, KR2: prefixes)
+        # First, try to extract from "Key Results" section
         kr_section = re.search(r'<h2[^>]*>Key Results</h2>\s*<ul[^>]*>(.*?)</ul>', text_content, re.IGNORECASE | re.DOTALL)
         if kr_section:
             kr_items = re.findall(r'<li[^>]*>([^<]+)</li>', kr_section.group(1))
@@ -283,6 +284,12 @@ def ask(
                 # Add KR prefix if not already present
                 if not re.match(r'^KR\d+:', clean_kr, re.IGNORECASE):
                     clean_kr = f"KR{i}: {clean_kr}"
+                key_results.append(clean_kr)
+        else:
+            # Fallback: Look for traditional KR1:, KR2: format in any list items
+            kr_matches = re.findall(r'<li[^>]*>(KR\d+:[^<]*)</li>', text_content, re.IGNORECASE)
+            for kr in kr_matches:
+                clean_kr = html.unescape(kr).strip()
                 key_results.append(clean_kr)
         
         # Extract risks from list items under risks section
@@ -317,61 +324,65 @@ def ask(
         include_objectives = True
         include_krs = True
     
-    # Compile sentences based on query intent
-    sentences = []
-    if include_objectives:
-        sentences.extend(objectives)
-    if include_krs:
-        sentences.extend(key_results)
-    if include_risks:
-        sentences.extend(risks)
+    # Build structured response maintaining logical order
+    bullets = []
+    seen_bullets = set()  # Track duplicates
     
-    # If we have specific OKR content, use it; otherwise fall back to general sentences
-    if not sentences and other_sentences:
-        sentences = other_sentences[:6]
-
-    if not sentences:
-        return AskResponse(query=q, bullets=[], citations=[], team=team, quarter=quarter)
-
-    # Create meta_by_idx to match sentences length
-    meta_by_idx = []
-    for h in enforced:
-        path = h.metadata.get("path", "")
-        # Estimate how many sentences came from this chunk
-        sentences_from_chunk = min(len(sentences), 2)  # rough estimate
-        meta_by_idx.extend([path] * sentences_from_chunk)
-        if len(meta_by_idx) >= len(sentences):
-            break
+    # Add objectives first (if requested)
+    if include_objectives and objectives:
+        for obj in objectives:
+            if obj not in seen_bullets:
+                bullets.append(obj)
+                seen_bullets.add(obj)
     
-    # Ensure meta_by_idx matches sentences length
-    while len(meta_by_idx) < len(sentences):
-        meta_by_idx.append(enforced[0].metadata.get("path", "") if enforced else "")
+    # Add key results in numerical order (if requested)
+    if include_krs and key_results:
+        # Sort key results by their number (KR1, KR2, etc.)
+        def extract_kr_number(kr_text):
+            match = re.search(r'KR(\d+):', kr_text)
+            return int(match.group(1)) if match else 999  # Put unnumbered KRs at the end
+        
+        sorted_krs = sorted(key_results, key=extract_kr_number)
+        for kr in sorted_krs:
+            if kr not in seen_bullets:
+                bullets.append(kr)
+                seen_bullets.add(kr)
+    
+    # Add risks last (if requested)
+    if include_risks and risks:
+        for risk in risks:
+            if risk not in seen_bullets:
+                bullets.append(risk)
+                seen_bullets.add(risk)
+    
+    # If we don't have specific OKR content, fall back to semantic search
+    if not bullets and other_sentences:
+        # Use the original semantic scoring approach for general content
+        emb = state["embeddings"]
+        q_vec = emb.embed_query(q)
+        s_vecs = emb.embed_documents(other_sentences)
 
-    emb = state["embeddings"]
-    q_vec = emb.embed_query(q)
-    s_vecs = emb.embed_documents(sentences)
+        def cos(a, b):
+            import math
+            dot = sum(x*y for x, y in zip(a, b))
+            na = math.sqrt(sum(x*x for x in a))
+            nb = math.sqrt(sum(y*y for y in b))
+            return dot / (na * nb + 1e-12)
 
-    def cos(a, b):
-        import math
-        dot = sum(x*y for x, y in zip(a, b))
-        na = math.sqrt(sum(x*x for x in a))
-        nb = math.sqrt(sum(y*y for y in b))
-        return dot / (na * nb + 1e-12)
+        scored = [(cos(q_vec, v), i) for i, v in enumerate(s_vecs)]
+        scored.sort(reverse=True)
 
-    scored = [(cos(q_vec, v), i) for i, v in enumerate(s_vecs)]
-    scored.sort(reverse=True)
+        top, seen = [], set()
+        for score, i in scored:
+            key = other_sentences[i][:80]
+            if key in seen: 
+                continue
+            seen.add(key)
+            top.append((score, i))
+            if len(top) >= 10:  # Limit for general content
+                break
 
-    top, seen = [], set()
-    for score, i in scored:
-        key = sentences[i][:80]
-        if key in seen: 
-            continue
-        seen.add(key)
-        top.append((score, i))
-        if len(top) >= 20:  # Increased for comprehensive results
-            break
-
-    bullets = [sentences[i] for (_, i) in top]
+        bullets = [other_sentences[i] for (_, i) in top]
 
     citations: List[Hit] = []
     for h in enforced[:min(10, len(enforced))]:  # Increased for comprehensive results

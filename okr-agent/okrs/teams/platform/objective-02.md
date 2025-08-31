@@ -11,8 +11,8 @@ Reduce lead time
 
 ## Key Results
 
-- KR1: Lead time under 2 days.
-- KR2: Lead time under 1 day.
+- Lead time under 2 days.
+- Lead time under 1 day.
 
 ## Risks
 
