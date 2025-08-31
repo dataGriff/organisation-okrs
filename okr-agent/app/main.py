@@ -1,4 +1,4 @@
-import os, io, csv, tempfile, zipfile, re
+import os, io, csv, tempfile, zipfile, re, html
 from typing import List, Dict, Any, Optional
 from fastapi import FastAPI, Query, HTTPException
 from fastapi.responses import FileResponse, StreamingResponse
@@ -68,7 +68,12 @@ def _build():
         q = _normalize_meta(d["meta"].get("quarter"))
         for c in splitter.split_text(d["text"]):
             chunks.append(c)
-            metadatas.append({"path": d["path"], "team": t, "quarter": q})
+            metadatas.append({
+                "path": d["path"], 
+                "team": t, 
+                "quarter": q,
+                "plain_text": d.get("plain_text", "")  # Store plain text for sentence extraction
+            })
 
     if state["embeddings"] is None:
         state["embeddings"] = HuggingFaceEmbeddings(model_name=EMBED_MODEL)
@@ -95,6 +100,26 @@ def _build():
 def _ensure_built():
     if state["store"] is None:
         _build()
+
+def _normalize_team_param(team: Optional[str]) -> Optional[str]:
+    """Normalize team parameter to match stored team names (case-insensitive)."""
+    if not team:
+        return None
+    team_lower = team.lower()
+    for t in state["teams"]:
+        if t and t.lower() == team_lower:
+            return t
+    return team  # return original if no match found
+
+def _normalize_quarter_param(quarter: Optional[str]) -> Optional[str]:
+    """Normalize quarter parameter to match stored quarter names (case-insensitive)."""
+    if not quarter:
+        return None
+    quarter_lower = quarter.lower()
+    for q in state["quarters"]:
+        if q and q.lower() == quarter_lower:
+            return q
+    return quarter  # return original if no match found
 
 def _infer_filters_from_query(q: str) -> Dict[str, Optional[str]]:
     """Look for any known team/quarter names inside the query text (case-insensitive)."""
@@ -148,6 +173,11 @@ def search(
     quarter: Optional[str] = Query(None),     # NEW
 ):
     _ensure_built()
+    
+    # Normalize team and quarter parameters to match stored names
+    team = _normalize_team_param(team)
+    quarter = _normalize_quarter_param(quarter)
+    
     # auto-infer if not provided
     if not team and not quarter:
         guess = _infer_filters_from_query(q)
@@ -188,6 +218,11 @@ def ask(
     Extractive answer with team/quarter filtering.
     """
     _ensure_built()
+    
+    # Normalize team and quarter parameters to match stored names
+    team = _normalize_team_param(team)
+    quarter = _normalize_quarter_param(quarter)
+    
     # infer filters if not provided
     if not team and not quarter:
         guess = _infer_filters_from_query(q)
@@ -209,10 +244,17 @@ def ask(
     if not enforced:
         enforced = hits[:k]
 
-    # sentence extraction + ranking
+    # sentence extraction + ranking - convert HTML to plain text first
     sentences, meta_by_idx = [], []
     for h in enforced:
-        parts = re.split(r'(?<=[.!?])\s+', h.page_content.strip())
+        # Simple HTML to text conversion for sentence extraction
+        text_content = h.page_content.strip()
+        # Remove HTML tags and decode HTML entities
+        text_content = re.sub(r'<[^>]+>', ' ', text_content)
+        text_content = html.unescape(text_content)
+        text_content = re.sub(r'\s+', ' ', text_content).strip()
+        
+        parts = re.split(r'(?<=[.!?])\s+', text_content)
         for s in parts:
             s = s.strip()
             if 40 <= len(s) <= 300:
@@ -267,6 +309,11 @@ def download(
     Download matching OKR files (team/quarter aware).
     """
     _ensure_built()
+    
+    # Normalize team and quarter parameters to match stored names
+    team = _normalize_team_param(team)
+    quarter = _normalize_quarter_param(quarter)
+    
     if not team and not quarter:
         guess = _infer_filters_from_query(q)
         team, quarter = team or guess["team"], quarter or guess["quarter"]

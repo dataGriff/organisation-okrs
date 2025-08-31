@@ -15,11 +15,12 @@ def load_markdown_docs(okr_dir: str):
         with open(path, "r", encoding="utf-8") as f:
             raw = f.read()
         post = frontmatter.loads(raw)
-        text = md.render(post.content)
+        html_text = md.render(post.content)
         docs.append({
             "path": os.path.relpath(path, okr_dir).replace("\\", "/"),
             "abs_path": os.path.abspath(path),
             "meta": post.metadata or {},
-            "text": text
+            "text": html_text,
+            "plain_text": post.content  # Keep the original markdown content for sentence extraction
         })
     return docs
