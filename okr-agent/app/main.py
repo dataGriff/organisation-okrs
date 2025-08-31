@@ -244,25 +244,89 @@ def ask(
     if not enforced:
         enforced = hits[:k]
 
-    # sentence extraction + ranking - convert HTML to plain text first
-    sentences, meta_by_idx = [], []
+    # Enhanced sentence extraction with OKR structure awareness
+    objectives, key_results, risks, other_sentences = [], [], [], []
+    
     for h in enforced:
-        # Simple HTML to text conversion for sentence extraction
+        # Extract content from HTML more carefully
         text_content = h.page_content.strip()
-        # Remove HTML tags and decode HTML entities
-        text_content = re.sub(r'<[^>]+>', ' ', text_content)
-        text_content = html.unescape(text_content)
-        text_content = re.sub(r'\s+', ' ', text_content).strip()
         
-        parts = re.split(r'(?<=[.!?])\s+', text_content)
-        for s in parts:
-            s = s.strip()
-            if 40 <= len(s) <= 300:
-                sentences.append(s)
-                meta_by_idx.append(h.metadata.get("path", ""))
+        # Extract objectives from H1 tags
+        objective_matches = re.findall(r'<h1[^>]*>([^<]*objective[^<]*)</h1>', text_content, re.IGNORECASE)
+        for obj in objective_matches:
+            clean_obj = html.unescape(obj).strip()
+            if not clean_obj.lower().startswith('objective:'):
+                clean_obj = f"Objective: {clean_obj}"
+            objectives.append(clean_obj)
+        
+        # Extract key results from list items
+        kr_matches = re.findall(r'<li[^>]*>(KR\d+:[^<]*)</li>', text_content, re.IGNORECASE)
+        for kr in kr_matches:
+            clean_kr = html.unescape(kr).strip()
+            key_results.append(clean_kr)
+        
+        # Extract risks from list items under risks section
+        # First find the risks section, then extract list items after it
+        risks_section = re.search(r'<h2[^>]*>Risks?</h2>\s*<ul[^>]*>(.*?)</ul>', text_content, re.IGNORECASE | re.DOTALL)
+        if risks_section:
+            risk_items = re.findall(r'<li[^>]*>([^<]+)</li>', risks_section.group(1))
+            for risk in risk_items:
+                clean_risk = html.unescape(risk).strip()
+                if len(clean_risk) > 10:
+                    risks.append(clean_risk)
+        
+        # Extract other meaningful content by removing HTML and getting sentences
+        clean_text = re.sub(r'<[^>]+>', ' ', text_content)
+        clean_text = html.unescape(clean_text)
+        clean_text = re.sub(r'\s+', ' ', clean_text).strip()
+        
+        sentences_in_text = re.split(r'(?<=[.!?])\s+', clean_text)
+        for sentence in sentences_in_text:
+            sentence = sentence.strip()
+            if (20 <= len(sentence) <= 300 and 
+                not re.search(r'(objective|KR\d+):', sentence, re.IGNORECASE)):
+                other_sentences.append(sentence)
+    
+    # Determine what to include based on query
+    query_lower = q.lower()
+    include_objectives = "objective" in query_lower
+    include_krs = any(term in query_lower for term in ["key result", "kr", "krs", "key results"])
+    include_risks = "risk" in query_lower
+    
+    # If no specific type is mentioned, include objectives and key results by default
+    if not (include_objectives or include_krs or include_risks):
+        include_objectives = True
+        include_krs = True
+    
+    # Compile sentences based on query intent
+    sentences = []
+    if include_objectives:
+        sentences.extend(objectives)
+    if include_krs:
+        sentences.extend(key_results)
+    if include_risks:
+        sentences.extend(risks)
+    
+    # If we have specific OKR content, use it; otherwise fall back to general sentences
+    if not sentences and other_sentences:
+        sentences = other_sentences[:6]
 
     if not sentences:
         return AskResponse(query=q, bullets=[], citations=[], team=team, quarter=quarter)
+
+    # Create meta_by_idx to match sentences length
+    meta_by_idx = []
+    for h in enforced:
+        path = h.metadata.get("path", "")
+        # Estimate how many sentences came from this chunk
+        sentences_from_chunk = min(len(sentences), 2)  # rough estimate
+        meta_by_idx.extend([path] * sentences_from_chunk)
+        if len(meta_by_idx) >= len(sentences):
+            break
+    
+    # Ensure meta_by_idx matches sentences length
+    while len(meta_by_idx) < len(sentences):
+        meta_by_idx.append(enforced[0].metadata.get("path", "") if enforced else "")
 
     emb = state["embeddings"]
     q_vec = emb.embed_query(q)
