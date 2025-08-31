@@ -251,22 +251,41 @@ def ask(
         # Extract content from HTML more carefully
         text_content = h.page_content.strip()
         
-        # Extract objectives from H1 tags
-        objective_matches = re.findall(r'<h1[^>]*>([^<]*objective[^<]*)</h1>', text_content, re.IGNORECASE)
+        # Extract objectives from H1 tags (either "Objective:" or just "Objective")
+        objective_matches = re.findall(r'<h1[^>]*>([^<]*(?:objective[^<]*|Objective[^<]*))</h1>', text_content, re.IGNORECASE)
         for obj in objective_matches:
             clean_obj = html.unescape(obj).strip()
-            if not clean_obj.lower().startswith('objective:'):
+            # Handle both "Objective: Title" and just "Objective" formats
+            if clean_obj.lower() == 'objective':
+                # Look for the objective content in the next text
+                obj_content_match = re.search(r'<h1[^>]*>Objective</h1>\s*<p[^>]*>([^<]+)</p>', text_content, re.IGNORECASE)
+                if obj_content_match:
+                    clean_obj = f"Objective: {html.unescape(obj_content_match.group(1)).strip()}"
+                else:
+                    clean_obj = "Objective: [Content not found]"
+            elif not clean_obj.lower().startswith('objective:'):
                 clean_obj = f"Objective: {clean_obj}"
             objectives.append(clean_obj)
         
-        # Extract key results from list items
+        # Extract key results from different patterns
+        # Pattern 1: Traditional KR1:, KR2: format in list items
         kr_matches = re.findall(r'<li[^>]*>(KR\d+:[^<]*)</li>', text_content, re.IGNORECASE)
         for kr in kr_matches:
             clean_kr = html.unescape(kr).strip()
             key_results.append(clean_kr)
         
+        # Pattern 2: Key results under "Key Results" section (without KR1:, KR2: prefixes)
+        kr_section = re.search(r'<h2[^>]*>Key Results</h2>\s*<ul[^>]*>(.*?)</ul>', text_content, re.IGNORECASE | re.DOTALL)
+        if kr_section:
+            kr_items = re.findall(r'<li[^>]*>([^<]+)</li>', kr_section.group(1))
+            for i, kr in enumerate(kr_items, 1):
+                clean_kr = html.unescape(kr).strip()
+                # Add KR prefix if not already present
+                if not re.match(r'^KR\d+:', clean_kr, re.IGNORECASE):
+                    clean_kr = f"KR{i}: {clean_kr}"
+                key_results.append(clean_kr)
+        
         # Extract risks from list items under risks section
-        # First find the risks section, then extract list items after it
         risks_section = re.search(r'<h2[^>]*>Risks?</h2>\s*<ul[^>]*>(.*?)</ul>', text_content, re.IGNORECASE | re.DOTALL)
         if risks_section:
             risk_items = re.findall(r'<li[^>]*>([^<]+)</li>', risks_section.group(1))
@@ -284,7 +303,7 @@ def ask(
         for sentence in sentences_in_text:
             sentence = sentence.strip()
             if (20 <= len(sentence) <= 300 and 
-                not re.search(r'(objective|KR\d+):', sentence, re.IGNORECASE)):
+                not re.search(r'(objective|KR\d*|key results|risks):', sentence, re.IGNORECASE)):
                 other_sentences.append(sentence)
     
     # Determine what to include based on query

@@ -5,7 +5,11 @@ owner: John Smith
 status: on-track
 ---
 
-# Objective: Win and expand enterprise accounts
+# Objective
+
+Win and expand enterprise accounts
+
+## Key Results
 
 - KR1: 10 new enterprise logos (≥ $50k ARR each).
 - KR2: Expansion ARR $600k across top 20 accounts.
@@ -13,4 +17,5 @@ status: on-track
 - KR4: ≥ 75% MEDDICC compliance on qualified deals.
 
 ## Risks
+
 - Two regional hires delayed; coverage gaps in EMEA.

@@ -1,0 +1,17 @@
+# https://taskfile.dev
+
+version: '3'
+
+vars:
+  GREETING: Hello, World!
+
+tasks:
+  default:
+    cmds:
+      - echo "{{.GREETING}}"
+    silent: true
+
+  refresh-okrs:
+    desc: Refresh the OKRs by rebuilding the document index.
+    cmds:
+      - curl -X POST http://localhost:8000/refresh
