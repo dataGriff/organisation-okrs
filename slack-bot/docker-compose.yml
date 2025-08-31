@@ -1,0 +1,28 @@
+version: '3.8'
+
+services:
+  slack-bot:
+    build: .
+    ports:
+      - "3000:3000"
+    environment:
+      - SLACK_BOT_TOKEN=${SLACK_BOT_TOKEN}
+      - SLACK_SIGNING_SECRET=${SLACK_SIGNING_SECRET}
+      - OKR_API_URL=http://okr-agent:8000
+    depends_on:
+      - okr-agent
+    networks:
+      - okr-network
+
+  okr-agent:
+    build: ../okr-agent
+    ports:
+      - "8000:8000"
+    volumes:
+      - ../okrs:/data/okrs:ro
+    networks:
+      - okr-network
+
+networks:
+  okr-network:
+    driver: bridge

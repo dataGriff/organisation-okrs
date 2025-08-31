@@ -1,0 +1,56 @@
+{
+  "display_information": {
+    "name": "OKR Agent",
+    "description": "Query organizational OKRs with natural language",
+    "background_color": "#2c3e50"
+  },
+  "features": {
+    "bot_user": {
+      "display_name": "OKR Agent",
+      "always_online": true
+    },
+    "slash_commands": [
+      {
+        "command": "/okr",
+        "url": "https://your-domain.com/slack/events",
+        "description": "Ask questions about OKRs",
+        "usage_hint": "<question> [team:TeamName] [quarter:2025-Q3]",
+        "should_escape": false
+      },
+      {
+        "command": "/okr-teams",
+        "url": "https://your-domain.com/slack/events", 
+        "description": "List available teams",
+        "should_escape": false
+      },
+      {
+        "command": "/okr-help",
+        "url": "https://your-domain.com/slack/events",
+        "description": "Show OKR bot help",
+        "should_escape": false
+      }
+    ]
+  },
+  "oauth_config": {
+    "scopes": {
+      "bot": [
+        "commands",
+        "chat:write",
+        "chat:write.public"
+      ]
+    }
+  },
+  "settings": {
+    "event_subscriptions": {
+      "request_url": "https://your-domain.com/slack/events",
+      "bot_events": []
+    },
+    "interactivity": {
+      "is_enabled": true,
+      "request_url": "https://your-domain.com/slack/events"
+    },
+    "org_deploy_enabled": false,
+    "socket_mode_enabled": false,
+    "token_rotation_enabled": false
+  }
+}

@@ -1,0 +1,31 @@
+### OKR Agent API Requests
+
+# Set the base URL (adjust port if needed)
+@baseUrl = http://localhost:8000
+
+### Get all objectives and key results
+GET {{baseUrl}}/ask?q=what are the objectives and key results
+
+### Get Platform team OKRs
+GET {{baseUrl}}/ask?q=what are the objectives and key results&team=Platform
+
+### Get Sales team OKRs  
+GET {{baseUrl}}/ask?q=what are the objectives and key results&team=Sales
+
+### Search for specific content
+GET {{baseUrl}}/ask?q=reduce lead time&team=Platform
+
+### Get objectives only
+GET {{baseUrl}}/ask?q=what are the objectives&team=Platform
+
+### Get key results only
+GET {{baseUrl}}/ask?q=what are the key results&team=Platform
+
+### Search with semantic query
+GET {{baseUrl}}/search?q=performance improvements&k=10
+
+### Refresh the OKR data
+POST {{baseUrl}}/refresh
+
+### Download OKR files
+GET {{baseUrl}}/download?q=platform objectives&format=zip
