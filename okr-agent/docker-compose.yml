@@ -1,0 +1,14 @@
+version: "3.8"
+services:
+  okr-agent:
+    build: .
+    image: okr-agent:local
+    container_name: okr-agent
+    ports:
+      - "8000:8000"
+    environment:
+      - OKR_DIR=/data/okrs
+      - EMBED_MODEL=sentence-transformers/all-MiniLM-L6-v2
+    volumes:
+      - ./okrs:/data/okrs:ro
+      - ./hf-cache:/root/.cache/huggingface

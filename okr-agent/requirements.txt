@@ -1,0 +1,8 @@
+fastapi
+uvicorn[standard]
+faiss-cpu
+sentence-transformers
+markdown-it-py
+python-frontmatter
+langchain
+langchain-community

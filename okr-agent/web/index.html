@@ -1,0 +1,102 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>OKR Agent UI</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <style>
+    :root { --bg:#0b1320; --card:#121a2a; --text:#f5f7ff; --muted:#9fb1d1; --accent:#6ea8fe; }
+    * { box-sizing: border-box; } body { margin:0; font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial; background: var(--bg); color: var(--text); }
+    .wrap { max-width: 980px; margin: 40px auto; padding: 0 16px; }
+    .card { background: var(--card); border: 1px solid #1e293b; border-radius: 16px; box-shadow: 0 8px 30px rgba(0,0,0,.25); padding: 20px; }
+    h1 { font-size: 28px; margin: 0 0 12px; } p.sub { margin:0 0 18px; color: var(--muted); }
+    .tabs { display:flex; gap:8px; margin-bottom: 10px; } .tab { padding:10px 14px; border-radius: 10px; cursor:pointer; user-select:none; border:1px solid #263247; color: var(--muted); }
+    .tab.active { background: #1a2540; color: var(--text); border-color:#365084; }
+    .row { display:flex; gap:10px; flex-wrap:wrap; align-items:center; }
+    input[type="text"], input[type="number"] { flex:1; min-width: 220px; padding: 12px 14px; background:#0f172a; color:var(--text); border:1px solid #263247; border-radius: 10px; }
+    button { padding: 12px 16px; border-radius: 10px; border:1px solid #3a5b9e; background:#1f3160; color:#e6eeff; cursor:pointer; }
+    button.secondary { background:#15203a; border-color:#2b3f6d; } button:disabled { opacity:.6; cursor:not-allowed; }
+    .results { margin-top: 14px; display:grid; gap:12px; } .hit, .answer { padding:14px; background:#0f172a; border:1px solid #22304a; border-radius: 12px; }
+    .hit .path { font-weight:600; color:#9ec1ff; } .muted { color: var(--muted); } .mini { width: 88px; }
+    .right { margin-left:auto; } .badge { font-size:12px; padding:3px 8px; border-radius: 999px; background:#162141; border:1px solid #29467a; color:#cfe1ff; }
+    .footer { margin-top:12px; font-size:12px; color: var(--muted); }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="card">
+      <h1>OKR Markdown Agent</h1>
+      <p class="sub">Search & ask across local Markdown OKRs — no API keys.</p>
+      <div class="tabs">
+        <div class="tab active" data-tab="ask">Ask</div>
+        <div class="tab" data-tab="search">Search</div>
+        <div class="right badge" id="docCount">loading…</div>
+      </div>
+      <div id="pane-ask">
+        <div class="row">
+          <input id="ask-input" type="text" placeholder="e.g., What are the Platform Q3 objectives and targets?" />
+          <input id="ask-k" class="mini" type="number" min="1" max="12" value="6" />
+          <button id="ask-btn">Ask</button>
+          <button class="secondary" id="ask-download">Download matches (ZIP)</button>
+        </div>
+        <div id="ask-results" class="results"></div>
+      </div>
+      <div id="pane-search" style="display:none">
+        <div class="row">
+          <input id="search-input" type="text" placeholder="e.g., latency, churn, SLO, Q3 Platform…" />
+          <input id="search-k" class="mini" type="number" min="1" max="20" value="6" />
+          <button id="search-btn">Search</button>
+          <button class="secondary" id="search-download-zip">Download (ZIP)</button>
+          <button class="secondary" id="search-download-csv">Download (CSV)</button>
+        </div>
+        <div id="search-results" class="results"></div>
+      </div>
+      <div class="footer"><span id="status">Ready.</span></div>
+    </div>
+  </div>
+  <script>
+    const api = (p) => p; const $ = (id) => document.getElementById(id);
+    document.querySelectorAll('.tab').forEach(t => t.addEventListener('click', () => {
+      document.querySelectorAll('.tab').forEach(x => x.classList.remove('active')); t.classList.add('active');
+      const tab = t.dataset.tab; $('pane-ask').style.display = tab==='ask'?'':'none'; $('pane-search').style.display = tab==='search'?'':'none';
+    }));
+    fetch(api('/health')).then(r=>r.json()).then(j=>$('docCount').textContent = `${j.docs} docs indexed`).catch(()=>$('docCount').textContent='');
+    $('ask-btn').addEventListener('click', async () => {
+      const q=$('ask-input').value.trim(), k=+$('ask-k').value||6; if(!q) return; setStatus('Asking…'); toggleAsk(true);
+      try{
+        const r=await fetch(api(`/ask?q=${encodeURIComponent(q)}&k=${k}`)); const j=await r.json();
+        const box=$('ask-results'); box.innerHTML=''; const ans=document.createElement('div'); ans.className='answer';
+        ans.innerHTML = `<div style="font-weight:700;margin-bottom:6px;">Answer</div>`
+          + (j.bullets?.length ? `<ul>${j.bullets.map(b=>`<li>${esc(b)}</li>`).join('')}</ul>` : `<div class="muted">No answer.</div>`)
+          + `<div class="muted" style="margin-top:8px;">Citations:</div>`
+          + (j.citations?.length ? j.citations.map(h=>renderHit(h)).join('') : `<div class="muted">None</div>`);
+        box.appendChild(ans);
+      }catch(e){alert('Ask failed.');} finally{toggleAsk(false); setStatus('Ready.');}
+    });
+    $('ask-download').addEventListener('click', () => {
+      const q=$('ask-input').value.trim(), k=+$('ask-k').value||6; if(!q) return;
+      download(`/download?q=${encodeURIComponent(q)}&k=${k}&format=zip`,'okrs.zip');
+    });
+    $('search-btn').addEventListener('click', async () => {
+      const q=$('search-input').value.trim(), k=+$('search-k').value||6; if(!q) return; setStatus('Searching…'); toggleSearch(true);
+      try{
+        const r=await fetch(api(`/search?q=${encodeURIComponent(q)}&k=${k}`)); const j=await r.json();
+        $('search-results').innerHTML = j.length ? j.map(renderHit).join('') : `<div class="muted">No results.</div>`;
+      }catch(e){alert('Search failed.');} finally{toggleSearch(false); setStatus('Ready.');}
+    });
+    $('search-download-zip').addEventListener('click', () => {
+      const q=$('search-input').value.trim(), k=+$('search-k').value||6; if(!q) return;
+      download(`/download?q=${encodeURIComponent(q)}&k=${k}&format=zip`,'okrs.zip');
+    });
+    $('search-download-csv').addEventListener('click', () => {
+      const q=$('search-input').value.trim(), k=+$('search-k').value||6; if(!q) return;
+      download(`/download?q=${encodeURIComponent(q)}&k=${k}&format=csv`,'okrs.csv');
+    });
+    function renderHit(h){ const p=esc(h.path||''), s=esc(h.snippet||''); return `<div class="hit"><div class="path">${p}</div><div class="muted">${s}</div></div>`;}
+    function toggleAsk(d){$('ask-btn').disabled=d; $('ask-input').disabled=d; $('ask-k').disabled=d; $('ask-download').disabled=d;}
+    function toggleSearch(d){$('search-btn').disabled=d; $('search-input').disabled=d; $('search-k').disabled=d; $('search-download-zip').disabled=d; $('search-download-csv').disabled=d;}
+    function setStatus(t){$('status').textContent=t;} function esc(s){return s?.replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[c]))??'';}
+    async function download(url, name){ setStatus('Preparing download…'); try{ const r=await fetch(api(url)); if(!r.ok) throw new Error(); const b=await r.blob(); const a=document.createElement('a'); a.href=URL.createObjectURL(b); a.download=name; document.body.appendChild(a); a.click(); URL.revokeObjectURL(a.href); a.remove(); }catch(e){alert('Download failed.');} finally{ setStatus('Ready.'); } }
+  </script>
+</body>
+</html>
