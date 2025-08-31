@@ -245,7 +245,9 @@ def ask(
         enforced = hits[:k]
 
     # Enhanced sentence extraction with OKR structure awareness
-    objectives, key_results, risks, other_sentences = [], [], [], []
+    # Track document-level OKR groups to maintain objective-KR associations
+    document_okrs = []  # List of {objective, key_results, risks} per document
+    other_sentences = []
     processed_docs = set()  # Track which documents we've already processed
     
     for h in enforced:
@@ -257,6 +259,9 @@ def ask(
         
         # Extract content from HTML more carefully
         text_content = h.page_content.strip()
+        
+        # Initialize document-level OKR structure
+        doc_okr = {"objective": None, "key_results": [], "risks": []}
         
         # Extract objectives from H1 tags (either "Objective:" or just "Objective")
         objective_matches = re.findall(r'<h1[^>]*>([^<]*(?:objective[^<]*|Objective[^<]*))</h1>', text_content, re.IGNORECASE)
@@ -272,7 +277,8 @@ def ask(
                     clean_obj = "Objective: [Content not found]"
             elif not clean_obj.lower().startswith('objective:'):
                 clean_obj = f"Objective: {clean_obj}"
-            objectives.append(clean_obj)
+            doc_okr["objective"] = clean_obj
+            break  # Only take first objective per document
         
         # Extract key results from different patterns
         # First, try to extract from "Key Results" section
@@ -284,13 +290,13 @@ def ask(
                 # Add KR prefix if not already present
                 if not re.match(r'^KR\d+:', clean_kr, re.IGNORECASE):
                     clean_kr = f"KR{i}: {clean_kr}"
-                key_results.append(clean_kr)
+                doc_okr["key_results"].append(clean_kr)
         else:
             # Fallback: Look for traditional KR1:, KR2: format in any list items
             kr_matches = re.findall(r'<li[^>]*>(KR\d+:[^<]*)</li>', text_content, re.IGNORECASE)
             for kr in kr_matches:
                 clean_kr = html.unescape(kr).strip()
-                key_results.append(clean_kr)
+                doc_okr["key_results"].append(clean_kr)
         
         # Extract risks from list items under risks section
         risks_section = re.search(r'<h2[^>]*>Risks?</h2>\s*<ul[^>]*>(.*?)</ul>', text_content, re.IGNORECASE | re.DOTALL)
@@ -299,7 +305,11 @@ def ask(
             for risk in risk_items:
                 clean_risk = html.unescape(risk).strip()
                 if len(clean_risk) > 10:
-                    risks.append(clean_risk)
+                    doc_okr["risks"].append(clean_risk)
+        
+        # Only add document OKR if it has content
+        if doc_okr["objective"] or doc_okr["key_results"] or doc_okr["risks"]:
+            document_okrs.append(doc_okr)
         
         # Extract other meaningful content by removing HTML and getting sentences
         clean_text = re.sub(r'<[^>]+>', ' ', text_content)
@@ -324,36 +334,39 @@ def ask(
         include_objectives = True
         include_krs = True
     
-    # Build structured response maintaining logical order
+    # Build structured response maintaining document-level grouping
     bullets = []
     seen_bullets = set()  # Track duplicates
     
-    # Add objectives first (if requested)
-    if include_objectives and objectives:
-        for obj in objectives:
+    # Helper function to extract KR numbers for sorting within each document
+    def extract_kr_number(kr_text):
+        match = re.search(r'KR(\d+):', kr_text)
+        return int(match.group(1)) if match else 999  # Put unnumbered KRs at the end
+    
+    # Process each document's OKRs to maintain objective-KR association
+    for doc_okr in document_okrs:
+        # Add the objective for this document (if requested and exists)
+        if include_objectives and doc_okr["objective"]:
+            obj = doc_okr["objective"]
             if obj not in seen_bullets:
                 bullets.append(obj)
                 seen_bullets.add(obj)
-    
-    # Add key results in numerical order (if requested)
-    if include_krs and key_results:
-        # Sort key results by their number (KR1, KR2, etc.)
-        def extract_kr_number(kr_text):
-            match = re.search(r'KR(\d+):', kr_text)
-            return int(match.group(1)) if match else 999  # Put unnumbered KRs at the end
         
-        sorted_krs = sorted(key_results, key=extract_kr_number)
-        for kr in sorted_krs:
-            if kr not in seen_bullets:
-                bullets.append(kr)
-                seen_bullets.add(kr)
-    
-    # Add risks last (if requested)
-    if include_risks and risks:
-        for risk in risks:
-            if risk not in seen_bullets:
-                bullets.append(risk)
-                seen_bullets.add(risk)
+        # Add the key results for this document immediately after its objective (if requested)
+        if include_krs and doc_okr["key_results"]:
+            # Sort this document's KRs by their number (KR1, KR2, etc.)
+            sorted_krs = sorted(doc_okr["key_results"], key=extract_kr_number)
+            for kr in sorted_krs:
+                if kr not in seen_bullets:
+                    bullets.append(kr)
+                    seen_bullets.add(kr)
+        
+        # Add the risks for this document (if requested)
+        if include_risks and doc_okr["risks"]:
+            for risk in doc_okr["risks"]:
+                if risk not in seen_bullets:
+                    bullets.append(risk)
+                    seen_bullets.add(risk)
     
     # If we don't have specific OKR content, fall back to semantic search
     if not bullets and other_sentences:
@@ -451,7 +464,8 @@ def download(
             added = set()
             for h in enforced:
                 rel_path = h.metadata.get("path", "unknown.md")
-                if rel_path in added: continue
+                if rel_path in added:
+                    continue
                 added.add(rel_path)
                 abs_path = os.path.join(OKR_DIR, rel_path)
                 if os.path.exists(abs_path):
