@@ -168,7 +168,7 @@ def refresh():
 @app.get("/search", response_model=List[Hit])
 def search(
     q: str = Query(..., min_length=2),
-    k: int = 5,
+    k: int = 50,  # Increased for comprehensive results in small system
     team: Optional[str] = Query(None),        # NEW
     quarter: Optional[str] = Query(None),     # NEW
 ):
@@ -210,7 +210,7 @@ def search(
 @app.get("/ask", response_model=AskResponse)
 def ask(
     q: str = Query(..., min_length=2),
-    k: int = 6,
+    k: int = 50,  # Increased for comprehensive results in small system
     team: Optional[str] = Query(None),        # NEW
     quarter: Optional[str] = Query(None),     # NEW
 ):
@@ -364,15 +364,17 @@ def ask(
     top, seen = [], set()
     for score, i in scored:
         key = sentences[i][:80]
-        if key in seen: continue
+        if key in seen: 
+            continue
         seen.add(key)
         top.append((score, i))
-        if len(top) >= 6: break
+        if len(top) >= 20:  # Increased for comprehensive results
+            break
 
     bullets = [sentences[i] for (_, i) in top]
 
     citations: List[Hit] = []
-    for h in enforced[:min(5, len(enforced))]:
+    for h in enforced[:min(10, len(enforced))]:  # Increased for comprehensive results
         snippet = h.page_content.strip()
         if len(snippet) > 300:
             snippet = snippet[:300] + "…"
@@ -383,7 +385,7 @@ def ask(
 @app.get("/download")
 def download(
     q: str = Query(..., min_length=2),
-    k: int = 8,
+    k: int = 50,  # Increased for comprehensive results in small system
     format: str = "zip",
     team: Optional[str] = Query(None),        # NEW
     quarter: Optional[str] = Query(None),     # NEW
