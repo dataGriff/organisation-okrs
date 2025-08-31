@@ -1,0 +1,11 @@
+{
+	"servers": {
+		"okr-agent": {
+			"command": "node",
+			"args": ["/workspaces/organisation-okrs/mcp-server/dist/index.js"],
+			"env": {
+				"OKR_API_URL": "http://localhost:8000"
+			}
+		}
+	}
+}

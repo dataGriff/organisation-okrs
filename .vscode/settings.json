@@ -1,0 +1,10 @@
+{
+    "chat.mcp.serverSampling": {
+        "organisation-okrs/.vscode/mcp.json: okr-agent": {
+            "allowedModels": [
+                "copilot/gpt-4.1",
+                "copilot/claude-sonnet-4"
+            ]
+        }
+    }
+}
