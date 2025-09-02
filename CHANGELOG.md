@@ -1,0 +1,1 @@
+todo: add automated change log and ensure good commits in linting or pre commit 
